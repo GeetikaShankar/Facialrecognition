@@ -1,0 +1,99 @@
+# Step 1: Install Required Libraries
+!pip install opencv-python
+!pip install face_recognition
+!pip install numpy
+!pip install pandas
+
+# Step 2: Set Up Directory Paths
+import os
+
+# Define the directory path for known faces
+one_drive_path = os.path.join(os.path.expanduser("~"), 'OneDrive', 'Desktop')
+image_dir = os.path.join(one_drive_path, 'facial_recognition_names')
+
+# Step 3: Encode Known Faces
+import face_recognition
+
+def encode_faces(image_dir):
+    known_face_encodings = []
+    known_face_names = []
+
+    for person_name in os.listdir(image_dir):
+        person_dir = os.path.join(image_dir, person_name)
+        if not os.path.isdir(person_dir):
+            continue
+
+        for image_name in os.listdir(person_dir):
+            image_path = os.path.join(person_dir, image_name)
+            image = face_recognition.load_image_file(image_path)
+            encoding = face_recognition.face_encodings(image)[0]
+            known_face_encodings.append(encoding)
+            known_face_names.append(person_name)
+
+    return known_face_encodings, known_face_names
+
+# Encode faces from the images in the directory
+known_face_encodings, known_face_names = encode_faces(image_dir)
+
+# Print the results to verify
+print("Encoded faces:", known_face_names)
+
+# Step 4: Real-Time Face Recognition and Attendance Marking
+import cv2
+import pandas as pd
+import datetime
+
+# Initialize the video capture
+video_capture = cv2.VideoCapture(0)
+
+# Create or open the attendance file
+attendance_file = os.path.join(one_drive_path, 'attendance.csv')
+if not os.path.exists(attendance_file):
+    attendance_df = pd.DataFrame(columns=['Name', 'Timestamp'])
+    attendance_df.to_csv(attendance_file, index=False)
+
+while True:
+    ret, frame = video_capture.read()
+    if not ret:
+        break
+
+    # Convert the frame to RGB
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+    # Detect faces in the frame
+    face_locations = face_recognition.face_locations(rgb_frame)
+    face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+
+    for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
+        matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
+        name = "Unknown"
+
+        if True in matches:
+            first_match_index = matches.index(True)
+            name = known_face_names[first_match_index]
+
+        # Log the attendance
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        attendance_df = pd.read_csv(attendance_file)
+        if not ((attendance_df['Name'] == name) & (attendance_df['Timestamp'].str.startswith(timestamp[:10]))).any():
+            attendance_df = attendance_df.append({'Name': name, 'Timestamp': timestamp}, ignore_index=True)
+            attendance_df.to_csv(attendance_file, index=False)
+
+        # Draw a rectangle around the face and label it
+        cv2.rectangle(frame, (left, top), (right, bottom), (0, 0, 255), 2)
+        cv2.putText(frame, name, (left, top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+    # Display the resulting image
+    cv2.imshow('Video', frame)
+
+    # Exit the loop if 'q' is pressed
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Release the video capture and close all windows
+video_capture.release()
+cv2.destroyAllWindows()
+
+# Step 5: Reviewing Attendance
+attendance_df = pd.read_csv(attendance_file)
+print(attendance_df)
